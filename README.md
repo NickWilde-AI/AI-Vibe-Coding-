@@ -6,11 +6,9 @@
 
 ### liquid-touch-camera
 
-摄像头实时画面 + 液体玻璃折射。手指划过或手势驱动，水面起伏、折射、泛光。LIQUID / CRYSTAL 双模式。
+打开摄像头，把实时画面做成「液体玻璃」效果。手指在屏幕上划过，或用手势在镜头前移动，水面会跟着起伏、折射、泛出高光。底部可切换 **LIQUID**（柔和水波）和 **CRYSTAL**（锐利晶体），右上角可切换前/后置摄像头。
 
-<!-- ![liquid-touch-camera](assets/liquid-touch-camera.gif) -->
-
-`projects/liquid-touch-camera/`
+运行：进入 `projects/liquid-touch-camera/`，用浏览器打开 `index.html`；若摄像头无法启动，改用 `npx serve .` 后访问 `localhost`。
 
 ---
 
