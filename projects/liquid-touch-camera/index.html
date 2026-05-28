@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Liquid Touch Camera</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #030405;
+      color: #f7fbff;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #030405;
+    }
+
+    body {
+      touch-action: none;
+    }
+
+    #stage {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      background: #030405;
+    }
+
+    #video {
+      position: fixed;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+      transform: scaleX(-1);
+    }
+
+    .hud {
+      position: fixed;
+      inset: auto 0 max(18px, env(safe-area-inset-bottom)) 0;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 0 16px;
+      pointer-events: none;
+    }
+
+    .button {
+      min-width: 92px;
+      height: 42px;
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 999px;
+      padding: 0 16px;
+      background: rgba(8, 12, 15, 0.42);
+      color: rgba(247, 251, 255, 0.86);
+      font: 700 12px/1 ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: 0;
+      backdrop-filter: blur(18px) saturate(1.25);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24);
+      pointer-events: auto;
+      cursor: pointer;
+    }
+
+    .button[data-active="true"] {
+      background: rgba(246, 252, 255, 0.9);
+      color: #071015;
+      border-color: rgba(255, 255, 255, 0.75);
+    }
+
+    .topbar {
+      position: fixed;
+      top: max(14px, env(safe-area-inset-top));
+      right: 14px;
+      z-index: 4;
+      display: flex;
+      gap: 10px;
+    }
+
+    .iconButton {
+      width: 44px;
+      height: 44px;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      background: rgba(8, 12, 15, 0.46);
+      color: rgba(247, 251, 255, 0.88);
+      backdrop-filter: blur(18px) saturate(1.25);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+    }
+
+    .iconButton svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 2;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .gate,
+    .error {
+      position: fixed;
+      inset: 0;
+      z-index: 6;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at 50% 38%, rgba(132, 223, 255, 0.18), transparent 34%),
+        #030405;
+      transition: opacity 180ms ease;
+    }
+
+    .gate[data-hidden="true"],
+    .error[data-hidden="true"] {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .panel {
+      width: min(420px, calc(100vw - 40px));
+      display: grid;
+      gap: 18px;
+      justify-items: center;
+      text-align: center;
+    }
+
+    .title {
+      margin: 0;
+      font-size: clamp(34px, 10vw, 72px);
+      line-height: 0.92;
+      font-weight: 850;
+      letter-spacing: 0;
+    }
+
+    .copy {
+      margin: 0;
+      color: rgba(247, 251, 255, 0.68);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .start {
+      min-width: 184px;
+      height: 52px;
+      border: 0;
+      border-radius: 999px;
+      color: #061014;
+      background: linear-gradient(135deg, #f9ffff, #b9f4ff 52%, #ffd6e8);
+      font: 800 14px/1 ui-sans-serif, system-ui, sans-serif;
+      letter-spacing: 0;
+      cursor: pointer;
+      box-shadow: 0 20px 54px rgba(101, 226, 255, 0.24);
+    }
+
+    .error pre {
+      width: min(760px, calc(100vw - 32px));
+      max-height: 58vh;
+      margin: 0;
+      overflow: auto;
+      padding: 16px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffd3d3;
+      white-space: pre-wrap;
+      text-align: left;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="stage" aria-label="liquid camera"></canvas>
+  <video id="video" playsinline muted autoplay></video>
+
+  <div class="topbar">
+    <button class="iconButton" id="flip" title="切换摄像头" aria-label="切换摄像头">
+      <svg viewBox="0 0 24 24">
+        <path d="M4 7h4l2-2h4l2 2h4v12H4z"></path>
+        <path d="M9 13a3 3 0 1 0 6 0 3 3 0 0 0-6 0z"></path>
+        <path d="M17 10h2"></path>
+      </svg>
+    </button>
+  </div>
+
+  <div class="hud">
+    <button class="button" id="liquid" data-active="true">LIQUID</button>
+    <button class="button" id="crystal" data-active="false">CRYSTAL</button>
+  </div>
+
+  <div class="gate" id="gate">
+    <div class="panel">
+      <h1 class="title">LIQUID<br>TOUCH</h1>
+      <p class="copy" id="gateCopy">打开摄像头，用手指划过画面。水面会贴着指尖起伏、折射、泛起高光。</p>
+      <button class="start" id="start">开启摄像头</button>
+    </div>
+  </div>
+
+  <div class="error" id="error" data-hidden="true">
+    <div class="panel">
+      <h1 class="title">SHADER<br>ERROR</h1>
+      <pre id="errorText"></pre>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
+  <script>
+    (() => {
+      const canvas = document.getElementById('stage');
+      const video = document.getElementById('video');
+      const gate = document.getElementById('gate');
+      const gateCopy = document.getElementById('gateCopy');
+      const errorLayer = document.getElementById('error');
+      const errorText = document.getElementById('errorText');
+      const startButton = document.getElementById('start');
+      const flipButton = document.getElementById('flip');
+      const liquidButton = document.getElementById('liquid');
+      const crystalButton = document.getElementById('crystal');
+
+      const gl = canvas.getContext('webgl', {
+        alpha: false,
+        antialias: false,
+        depth: false,
+        stencil: false,
+        preserveDrawingBuffer: false,
+      });
+
+      if (!gl) {
+        showError('当前浏览器没有可用的 WebGL。请换 Safari / Chrome，或关闭低电量/隐私限制后重试。');
+        return;
+      }
+
+      const MAX_SPLATS = 28;
+      const DPR_LIMIT = 1.75;
+      const SIM_W = 256;
+      const SIM_H = 256;
+      const pointers = new Map();
+      const splats = [];
+      const manualPoints = new Map();
+
+      let facingMode = 'user';
+      let stream = null;
+      let hands = null;
+      let handsReady = false;
+      let cameraTexture = null;
+      let simA = null;
+      let simB = null;
+      let frame = 0;
+      let mode = 0;
+      let lastTime = performance.now();
+      let resizeQueued = true;
+      let processingHands = false;
+      let handLandmarks = [];
+      let lastHandPoints = [];
+      let useMirror = true;
+
+      const vertexSource = `
+        attribute vec2 a_position;
+        varying vec2 v_uv;
+        void main() {
+          v_uv = a_position * 0.5 + 0.5;
+          gl_Position = vec4(a_position, 0.0, 1.0);
+        }
+      `;
+
+      const simSource = `
+        precision mediump float;
+        varying vec2 v_uv;
+        uniform sampler2D u_state;
+        uniform vec2 u_texel;
+        uniform float u_dt;
+        uniform float u_mode;
+        uniform float u_splatCount;
+        uniform vec4 u_splats[${MAX_SPLATS}];
+        uniform vec2 u_splatParams[${MAX_SPLATS}];
+
+        float capsule(vec2 p, vec2 a, vec2 b, float r) {
+          vec2 pa = p - a;
+          vec2 ba = b - a;
+          float h = clamp(dot(pa, ba) / max(dot(ba, ba), 0.00001), 0.0, 1.0);
+          return length(pa - ba * h) - r;
+        }
+
+        void main() {
+          vec4 c = texture2D(u_state, v_uv);
+          float h = c.r * 2.0 - 1.0;
+          float v = c.g * 2.0 - 1.0;
+
+          float hL = texture2D(u_state, v_uv - vec2(u_texel.x, 0.0)).r * 2.0 - 1.0;
+          float hR = texture2D(u_state, v_uv + vec2(u_texel.x, 0.0)).r * 2.0 - 1.0;
+          float hD = texture2D(u_state, v_uv - vec2(0.0, u_texel.y)).r * 2.0 - 1.0;
+          float hU = texture2D(u_state, v_uv + vec2(0.0, u_texel.y)).r * 2.0 - 1.0;
+          float hDL = texture2D(u_state, v_uv + vec2(-u_texel.x, -u_texel.y)).r * 2.0 - 1.0;
+          float hDR = texture2D(u_state, v_uv + vec2( u_texel.x, -u_texel.y)).r * 2.0 - 1.0;
+          float hUL = texture2D(u_state, v_uv + vec2(-u_texel.x,  u_texel.y)).r * 2.0 - 1.0;
+          float hUR = texture2D(u_state, v_uv + vec2( u_texel.x,  u_texel.y)).r * 2.0 - 1.0;
+
+          float ortho = hL + hR + hD + hU - 4.0 * h;
+          float diag = hDL + hDR + hUL + hUR - 4.0 * h;
+          float lap = ortho * 0.72 + diag * 0.18;
+
+          float damping = mix(0.984, 0.972, u_mode);
+          float stiffness = mix(0.72, 0.94, u_mode);
+          v += lap * stiffness;
+          v *= damping;
+          h += v * mix(0.74, 0.62, u_mode);
+
+          float disturbance = 0.0;
+          for (int i = 0; i < ${MAX_SPLATS}; i++) {
+            float enabled = step(float(i), u_splatCount - 0.5);
+            vec4 s = u_splats[i];
+            vec2 params = u_splatParams[i];
+            vec2 a = s.xy;
+            vec2 b = s.zw;
+            float radius = mix(0.014, 0.024, u_mode) * params.y;
+            float d = capsule(v_uv, a, b, radius);
+            float core = exp(-max(d, 0.0) * max(d, 0.0) * 4200.0);
+            float ring = exp(-abs(d) * mix(70.0, 92.0, u_mode));
+            disturbance += enabled * params.x * (core * 0.72 - ring * 0.28);
+          }
+
+          v += disturbance * mix(0.145, 0.22, u_mode);
+          h += disturbance * mix(0.045, 0.085, u_mode);
+          h *= mix(0.997, 0.994, u_mode);
+
+          gl_FragColor = vec4(clamp(h * 0.5 + 0.5, 0.0, 1.0), clamp(v * 0.5 + 0.5, 0.0, 1.0), 0.5, 1.0);
+        }
+      `;
+
+      const renderSource = `
+        precision mediump float;
+        varying vec2 v_uv;
+        uniform sampler2D u_camera;
+        uniform sampler2D u_state;
+        uniform vec2 u_resolution;
+        uniform vec2 u_videoSize;
+        uniform vec2 u_texel;
+        uniform float u_time;
+        uniform float u_mode;
+        uniform float u_mirror;
+
+        vec2 coverUv(vec2 uv, vec2 screen, vec2 media) {
+          float screenRatio = screen.x / screen.y;
+          float mediaRatio = media.x / media.y;
+          vec2 outUv = uv;
+          if (screenRatio > mediaRatio) {
+            float scale = mediaRatio / screenRatio;
+            outUv.y = uv.y * scale + (1.0 - scale) * 0.5;
+          } else {
+            float scale = screenRatio / mediaRatio;
+            outUv.x = uv.x * scale + (1.0 - scale) * 0.5;
+          }
+          if (u_mirror > 0.5) outUv.x = 1.0 - outUv.x;
+          outUv.y = 1.0 - outUv.y;
+          return outUv;
+        }
+
+        float heightAt(vec2 uv) {
+          return texture2D(u_state, uv).r * 2.0 - 1.0;
+        }
+
+        void main() {
+          vec2 uv = v_uv;
+          float h = heightAt(uv);
+          float hL = heightAt(uv - vec2(u_texel.x, 0.0));
+          float hR = heightAt(uv + vec2(u_texel.x, 0.0));
+          float hD = heightAt(uv - vec2(0.0, u_texel.y));
+          float hU = heightAt(uv + vec2(0.0, u_texel.y));
+          vec2 grad = vec2(hR - hL, hU - hD);
+          float slope = length(grad);
+          float curve = abs(hL + hR + hD + hU - 4.0 * h);
+
+          float strength = mix(0.215, 0.32, u_mode);
+          vec2 refractUv = uv + grad * strength;
+          vec2 cameraUv = coverUv(refractUv, u_resolution, u_videoSize);
+          vec2 cameraUvR = coverUv(refractUv + grad * mix(0.008, 0.015, u_mode), u_resolution, u_videoSize);
+          vec2 cameraUvB = coverUv(refractUv - grad * mix(0.010, 0.018, u_mode), u_resolution, u_videoSize);
+
+          vec3 base;
+          base.r = texture2D(u_camera, cameraUvR).r;
+          base.g = texture2D(u_camera, cameraUv).g;
+          base.b = texture2D(u_camera, cameraUvB).b;
+
+          vec3 normal = normalize(vec3(-grad * mix(8.0, 13.0, u_mode), 1.0));
+          vec3 lightA = normalize(vec3(-0.34, 0.48, 0.82));
+          vec3 lightB = normalize(vec3(0.70, -0.28, 0.66));
+          float sharp = pow(max(dot(reflect(-lightA, normal), vec3(0.0, 0.0, 1.0)), 0.0), mix(58.0, 110.0, u_mode));
+          float sheen = pow(max(dot(normal, lightB), 0.0), 2.2);
+          float fresnel = pow(1.0 - clamp(normal.z, 0.0, 1.0), 4.2);
+
+          float edge = smoothstep(0.020, 0.155, slope) + smoothstep(0.030, 0.18, curve) * 0.75;
+          vec3 warm = vec3(1.0, 0.72, 0.70);
+          vec3 cool = vec3(0.58, 0.92, 1.0);
+          vec3 tint = mix(cool, warm, smoothstep(-0.12, 0.12, h));
+          vec3 glass = base + tint * edge * mix(0.18, 0.36, u_mode);
+          glass += vec3(1.0) * sharp * mix(0.80, 1.35, u_mode);
+          glass += cool * sheen * mix(0.035, 0.075, u_mode);
+          glass += vec3(0.74, 0.92, 1.0) * fresnel * edge * mix(0.35, 0.62, u_mode);
+          glass += h * vec3(0.050, 0.030, -0.020);
+
+          float vignette = smoothstep(1.18, 0.28, distance(uv, vec2(0.5)));
+          glass *= mix(0.82, 1.0, vignette);
+          gl_FragColor = vec4(glass, 1.0);
+        }
+      `;
+
+      function showError(message) {
+        errorText.textContent = message;
+        errorLayer.dataset.hidden = 'false';
+      }
+
+      function createShader(type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          const info = gl.getShaderInfoLog(shader);
+          gl.deleteShader(shader);
+          throw new Error(info + '\n\n' + source.split('\n').map((line, i) => `${i + 1}: ${line}`).join('\n'));
+        }
+        return shader;
+      }
+
+      function createProgram(fragmentSource) {
+        const program = gl.createProgram();
+        gl.attachShader(program, createShader(gl.VERTEX_SHADER, vertexSource));
+        gl.attachShader(program, createShader(gl.FRAGMENT_SHADER, fragmentSource));
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          const info = gl.getProgramInfoLog(program);
+          gl.deleteProgram(program);
+          throw new Error(info);
+        }
+        return program;
+      }
+
+      let simProgram;
+      let renderProgram;
+
+      try {
+        simProgram = createProgram(simSource);
+        renderProgram = createProgram(renderSource);
+      } catch (err) {
+        showError(String(err && err.message ? err.message : err));
+        return;
+      }
+
+      const quad = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+
+      const locations = {
+        sim: collectLocations(simProgram, ['a_position'], ['u_state', 'u_texel', 'u_dt', 'u_mode', 'u_splatCount', 'u_splats', 'u_splatParams']),
+        render: collectLocations(renderProgram, ['a_position'], ['u_camera', 'u_state', 'u_resolution', 'u_videoSize', 'u_texel', 'u_time', 'u_mode', 'u_mirror']),
+      };
+
+      function collectLocations(program, attributes, uniforms) {
+        const out = { attributes: {}, uniforms: {} };
+        attributes.forEach((name) => out.attributes[name] = gl.getAttribLocation(program, name));
+        uniforms.forEach((name) => out.uniforms[name] = gl.getUniformLocation(program, name));
+        return out;
+      }
+
+      function bindQuad(program, loc) {
+        gl.useProgram(program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+        gl.enableVertexAttribArray(loc.attributes.a_position);
+        gl.vertexAttribPointer(loc.attributes.a_position, 2, gl.FLOAT, false, 0, 0);
+      }
+
+      function createTexture(width, height, data = null) {
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        return tex;
+      }
+
+      function createTarget(width, height) {
+        const initial = new Uint8Array(width * height * 4);
+        for (let i = 0; i < initial.length; i += 4) {
+          initial[i] = 128;
+          initial[i + 1] = 128;
+          initial[i + 2] = 128;
+          initial[i + 3] = 255;
+        }
+        const texture = createTexture(width, height, initial);
+        const fbo = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+        const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+        if (status !== gl.FRAMEBUFFER_COMPLETE) {
+          throw new Error('FBO 初始化失败：' + status);
+        }
+        return { texture, fbo, width, height };
+      }
+
+      try {
+        simA = createTarget(SIM_W, SIM_H);
+        simB = createTarget(SIM_W, SIM_H);
+      } catch (err) {
+        showError(String(err && err.message ? err.message : err));
+        return;
+      }
+
+      cameraTexture = createTexture(2, 2, new Uint8Array([
+        8, 10, 11, 255, 8, 10, 11, 255,
+        8, 10, 11, 255, 8, 10, 11, 255,
+      ]));
+
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
+        const width = Math.max(1, Math.floor(window.innerWidth * dpr));
+        const height = Math.max(1, Math.floor(window.innerHeight * dpr));
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
+        }
+      }
+
+      function normalizedPoint(clientX, clientY) {
+        return {
+          x: clientX / Math.max(1, window.innerWidth),
+          y: 1 - clientY / Math.max(1, window.innerHeight),
+        };
+      }
+
+      function pushSplat(a, b, strength = 1, radius = 1) {
+        if (!Number.isFinite(a.x + a.y + b.x + b.y)) return;
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        if (dx * dx + dy * dy < 0.000001) {
+          b = { x: b.x + 0.001, y: b.y + 0.001 };
+        }
+        splats.push({ a, b, strength, radius });
+        while (splats.length > MAX_SPLATS) splats.shift();
+      }
+
+      function updateManualPointer(ev) {
+        const p = normalizedPoint(ev.clientX, ev.clientY);
+        const previous = manualPoints.get(ev.pointerId) || p;
+        manualPoints.set(ev.pointerId, p);
+        pushSplat(previous, p, 1);
+      }
+
+      canvas.addEventListener('pointerdown', (ev) => {
+        canvas.setPointerCapture(ev.pointerId);
+        updateManualPointer(ev);
+      });
+      canvas.addEventListener('pointermove', (ev) => {
+        if (ev.buttons) updateManualPointer(ev);
+      });
+      canvas.addEventListener('pointerup', (ev) => manualPoints.delete(ev.pointerId));
+      canvas.addEventListener('pointercancel', (ev) => manualPoints.delete(ev.pointerId));
+
+      window.addEventListener('resize', () => resizeQueued = true);
+      window.addEventListener('orientationchange', () => resizeQueued = true);
+
+      liquidButton.addEventListener('click', () => setMode(0));
+      crystalButton.addEventListener('click', () => setMode(1));
+      flipButton.addEventListener('click', async () => {
+        facingMode = facingMode === 'user' ? 'environment' : 'user';
+        await startCamera();
+      });
+      startButton.addEventListener('click', async () => {
+        await startCamera();
+      });
+
+      function setMode(nextMode) {
+        mode = nextMode;
+        liquidButton.dataset.active = String(mode === 0);
+        crystalButton.dataset.active = String(mode === 1);
+      }
+
+      async function setupHands() {
+        if (handsReady) return;
+        if (!window.Hands) {
+          throw new Error('MediaPipe Hands 加载失败。请确认网络可以访问 jsdelivr CDN。');
+        }
+        hands = new window.Hands({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`,
+        });
+        hands.setOptions({
+          maxNumHands: 2,
+          modelComplexity: 1,
+          minDetectionConfidence: 0.68,
+          minTrackingConfidence: 0.62,
+        });
+        hands.onResults((results) => {
+          handLandmarks = results.multiHandLandmarks || [];
+        });
+        handsReady = true;
+      }
+
+      async function startCamera() {
+        try {
+          gate.dataset.hidden = 'true';
+          gateCopy.textContent = '打开摄像头，用手指划过画面。水面会贴着指尖起伏、折射、泛起高光。';
+          errorLayer.dataset.hidden = 'true';
+          await setupHands();
+          if (stream) {
+            stream.getTracks().forEach((track) => track.stop());
+          }
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              facingMode: { ideal: facingMode },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          });
+          video.srcObject = stream;
+          await video.play();
+          useMirror = facingMode === 'user';
+        } catch (err) {
+          gate.dataset.hidden = 'false';
+          const message = err && err.message ? err.message : String(err);
+          gateCopy.textContent = message.includes('Permission')
+            ? '摄像头权限还没打开。点下面按钮并允许浏览器访问摄像头。'
+            : '摄像头启动失败：' + message;
+        }
+      }
+
+      function feedHandTracking() {
+        if (!handsReady || processingHands || video.readyState < 2) return;
+        if (frame % 2 !== 0) return;
+        processingHands = true;
+        hands.send({ image: video }).catch(() => {}).finally(() => {
+          processingHands = false;
+        });
+      }
+
+      function landmarkToUv(point) {
+        const x = useMirror ? 1 - point.x : point.x;
+        return { x, y: 1 - point.y };
+      }
+
+      function depthProfile(hand) {
+        const wrist = hand[0];
+        const middleTip = hand[12];
+        const span = Math.hypot(hand[5].x - hand[17].x, hand[5].y - hand[17].y);
+        const zLift = Math.max(0, -middleTip.z * 7.5);
+        const near = Math.min(1.75, 0.82 + span * 4.8 + zLift);
+        return {
+          strength: Math.min(1.9, near),
+          radius: Math.min(2.15, 0.86 + near * 0.42 + Math.max(0, -wrist.z * 2.0)),
+        };
+      }
+
+      function injectHands() {
+        const indices = [4, 8, 12, 16, 20];
+        const segments = [[5, 8], [9, 12], [13, 16], [17, 20], [2, 4]];
+        const nextPoints = [];
+
+        handLandmarks.forEach((hand, handIndex) => {
+          const profile = depthProfile(hand);
+          indices.forEach((index) => {
+            const p = landmarkToUv(hand[index]);
+            nextPoints.push({ key: `${handIndex}:${index}`, p, profile });
+          });
+          segments.forEach(([aIndex, bIndex]) => {
+            const a = landmarkToUv(hand[aIndex]);
+            const b = landmarkToUv(hand[bIndex]);
+            pushSplat(a, b, 0.46 * profile.strength, profile.radius * 0.82);
+          });
+        });
+
+        nextPoints.forEach(({ key, p, profile }) => {
+          const previous = pointers.get(key) || p;
+          pushSplat(previous, p, profile.strength, profile.radius);
+          pointers.set(key, p);
+        });
+
+        for (const key of Array.from(pointers.keys())) {
+          if (!nextPoints.some((item) => item.key === key)) pointers.delete(key);
+        }
+        lastHandPoints = nextPoints;
+      }
+
+      function updateCameraTexture() {
+        if (video.readyState < 2) return;
+        gl.bindTexture(gl.TEXTURE_2D, cameraTexture);
+        try {
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+        } catch (err) {
+          // Some browsers need a frame after permission before video is uploadable.
+        }
+      }
+
+      function stepSimulation(dt) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, simB.fbo);
+        gl.viewport(0, 0, simB.width, simB.height);
+        bindQuad(simProgram, locations.sim);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, simA.texture);
+        gl.uniform1i(locations.sim.uniforms.u_state, 0);
+        gl.uniform2f(locations.sim.uniforms.u_texel, 1 / SIM_W, 1 / SIM_H);
+        gl.uniform1f(locations.sim.uniforms.u_dt, dt);
+        gl.uniform1f(locations.sim.uniforms.u_mode, mode);
+        gl.uniform1f(locations.sim.uniforms.u_splatCount, Math.min(splats.length, MAX_SPLATS));
+
+        const data = new Float32Array(MAX_SPLATS * 4);
+        const params = new Float32Array(MAX_SPLATS * 2);
+        for (let i = 0; i < Math.min(splats.length, MAX_SPLATS); i++) {
+          const s = splats[i];
+          data[i * 4] = s.a.x;
+          data[i * 4 + 1] = s.a.y;
+          data[i * 4 + 2] = s.b.x;
+          data[i * 4 + 3] = s.b.y;
+          params[i * 2] = s.strength;
+          params[i * 2 + 1] = s.radius;
+        }
+        gl.uniform4fv(locations.sim.uniforms.u_splats, data);
+        gl.uniform2fv(locations.sim.uniforms.u_splatParams, params);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        const temp = simA;
+        simA = simB;
+        simB = temp;
+        splats.length = 0;
+      }
+
+      function render(time) {
+        frame++;
+        if (resizeQueued) {
+          resize();
+          resizeQueued = false;
+        }
+
+        const now = time || performance.now();
+        const dt = Math.min(0.033, Math.max(0.001, (now - lastTime) / 1000));
+        lastTime = now;
+
+        feedHandTracking();
+        injectHands();
+        updateCameraTexture();
+        stepSimulation(dt);
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        bindQuad(renderProgram, locations.render);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, cameraTexture);
+        gl.uniform1i(locations.render.uniforms.u_camera, 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, simA.texture);
+        gl.uniform1i(locations.render.uniforms.u_state, 1);
+        gl.uniform2f(locations.render.uniforms.u_resolution, canvas.width, canvas.height);
+        gl.uniform2f(locations.render.uniforms.u_videoSize, video.videoWidth || 1280, video.videoHeight || 720);
+        gl.uniform2f(locations.render.uniforms.u_texel, 1 / SIM_W, 1 / SIM_H);
+        gl.uniform1f(locations.render.uniforms.u_time, now * 0.001);
+        gl.uniform1f(locations.render.uniforms.u_mode, mode);
+        gl.uniform1f(locations.render.uniforms.u_mirror, useMirror ? 1 : 0);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        requestAnimationFrame(render);
+      }
+
+      resize();
+      requestAnimationFrame(render);
+
+      if (navigator.mediaDevices && window.isSecureContext) {
+        window.setTimeout(() => {
+          if (!stream && gate.dataset.hidden !== 'true') startCamera();
+        }, 480);
+      }
+    })();
+  </script>
+</body>
+</html>
